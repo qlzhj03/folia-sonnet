@@ -1,0 +1,3 @@
+# 全仓库默认由 owner review：配合分支保护的 Require review from Code Owners。
+# AI review 是评论、不算 approval（AGENTS.md「CI」）；名单按需调整。
+* @maimai993

@@ -9,6 +9,20 @@
 3. 按 skill 中的触发条件和执行规则完成工作。
 4. 如果多个 skill 同时相关，可以组合使用，但只加载当前任务真正需要的内容。不需要 skill 的任务不要读它们。
 
+## 人与 agent 的分工（流程顺序红线）
+
+本项目的开发由 AI agent 主导，质量靠流程和门禁保证。流程顺序是硬约束，**任何一步不过不许进下一步**：
+
+1. agent 写代码、写测试、跑单测——**单元测试必须全部通过**。
+2. 改动碰运行时代码（`src/`、`android/`、`api/`、`api-ts/`、`shared/`、`electron/`、`public/`、`index.html`、`vite.config.ts`、`capacitor.config.ts`、`package.json`）时，**必须在安卓模拟器或真机上实测**：`node scripts/androidSmoke.mjs --note "实测了什么"`（流程见 `skills/run-android/SKILL.md`），证据写进 `preview/android-evidence.json`，锚定当时的 HEAD。
+3. `npm run pr -- "标题" [--issue N]`：按顺序强制核对本地门禁（`npm run ci:local`，不可跳过）与实测证据（存在、无崩溃、commit 等于当前 HEAD），全过才推分支、生成 PR 正文（`preview/pr-body.md`）和 compare 链接。
+4. **创建 PR 由人在浏览器完成**——agent 不执行 `gh pr create`、`gh pr merge`，也不在网页上点 Create/Merge。PR 标题和正文可由 agent 编辑（`gh pr edit` 或网页）。
+5. 远端 CI 全绿（含「Android field-test evidence」对正文证据段的复核）+ 至少一条 AI review 评论 + **人 approve** 之后，由**人**合并。
+
+**人独占的动作**：创建与合并 PR、approve review、推 `release/*` 分支与 `v*` 标签、配置分支保护与仓库 secrets。其余（代码、测试、issue、PR 正文、评论、盯 CI）都由 agent 做。
+
+诚实说明：GitHub 无法从机制上区分「人点的创建」和「agent 用人的凭据调 API」，第 4 条的强制力来自工具不提供该路径（`ci/openPr.ts` 只准备不创建）+ 这条红线 + 分支保护要求人工 approve 才能合并；违规可从 PR 记录追溯。分支保护的一次性配置清单见 `docs/branch-protection.md`。
+
 ## 开发规范
 
 ### 目录
@@ -89,19 +103,20 @@
 ### 分支与发版
 
 - 四种分支：`main`（只接受发版合并）、`dev`（日常开发，所有 PR 的目标）、`feat/*` 与 `fix/*`（源分支，合并后删）、`release/x.y.z`（出包，从 main 切）。
-- **main 和 dev 都不直接 push**，一律走 PR。这条靠 GitHub 分支保护落实：Settings → Branches 给 `main`、`dev` 开保护，勾「Require a pull request before merging」与「Do not allow bypassing」。owner 在网页上配一次；CI 用的账号不是 admin，脚本改不了。
-- 日常：从 `dev` 切 `feat/*` 或 `fix/*` → 改 → 本地门禁 → PR 到 `dev` → 远端 CI 全绿 → 合并。不熟 GitHub 的用一条命令跑完推分支和建 PR：`npm run pr -- "fix: 标题"`（只是 `ci/openPr.ts` 的包装，细节见 `ci/README.md`）。
+- **main 和 dev 都不直接 push**，一律走 PR。这条靠 GitHub 分支保护落实：Settings → Branches 给 `main`、`dev` 开保护，勾「Require a pull request before merging」与「Do not allow bypassing」。owner 在网页上配一次（完整清单见 `docs/branch-protection.md`）；CI 用的账号不是 admin，脚本改不了。
+- 日常：从 `dev` 切 `feat/*` 或 `fix/*` → 改 → 单测全绿 → 运行时改动先安卓实测 → `npm run pr -- "fix: 标题"`（跑本地门禁、核对实测证据、推分支、生成 PR 正文和链接；只是 `ci/openPr.ts` 的包装，细节见 `ci/README.md`）→ **人**在浏览器创建 PR → 远端 CI 全绿 → 人 review 后合并。
 - 发版：先在 `dev` 上把 `package.json` 版本改好（走 PR），再 `dev` → PR → `main`；然后从 `main` 切 `release/<package.json 的 version>`（如 `release/0.7.22`）推上去。推这个分支会触发 `android-release.yml`：校验分支名与版本一致 → 出 APK/AAB → 打 `v<版本>` 标签 → 发 Release。release 分支上不再改版本号。
 
 ### CI
 
-- **开 PR 之前**跑 `npm run ci:local`（控件/体积/版本/密钥扫描 + typecheck + sync-server typecheck + 单测 + `vite build` + 产物密钥扫描，与 `.github/workflows/ci.yml` 同一套），红了不许开 PR。第一次跑之前先装 sync-server 的依赖：`npm --prefix sync-server ci`。Windows 上 `test/unit/mod-system/modSignature.test.ts` 的符号链接用例会因权限失败（要开发者模式/管理员），这是环境限制：其余全绿照常开 PR，这一项以 Linux 的 CI 为准。
+- **开 PR 之前**跑 `npm run ci:local`（控件/体积/版本/密钥扫描 + typecheck + sync-server typecheck + 单测 + `vite build` + 产物密钥扫描，与 `.github/workflows/ci.yml` 同一套），红了不许开 PR——`npm run pr` 会强制先跑它，没有 `--skip-ci`。第一次跑之前先装 sync-server 的依赖：`npm --prefix sync-server ci`。Windows 上 `test/unit/mod-system/modSignature.test.ts` 的符号链接用例会因权限失败（要开发者模式/管理员），这是环境限制：其余全绿照常开 PR，这一项以 Linux 的 CI 为准。
 - **开 PR 之后**盯 CI，全绿才合并：有 gh 用 `gh pr checks <编号> --watch`；没有 gh（或走 SSH 认证）就开 PR 页面的 **Checks** 标签。红了当场修，不要交给别人。
-- **合并前必须 review，至少一次 AI review**，而且报告要发在 GitHub 上：有 gh 用 `gh pr review <编号> --comment --body-file review.md`；没有 gh 就在 **Files changed → Review changes → Comment** 里写。只在聊天里说「看过了」不算，PR 的 Reviews 里能查到才算。有未处理的 CHANGES_REQUESTED 不许合。
-- **`gh` 只是便利工具，不是硬依赖。** 走 SSH 认证、没装 gh、或不想在本机登录 gh 的人都照常提 PR：`npm run pr -- "标题"` 会先跑本地门禁再 push（SSH 用自己的 key），检测不到可用的 gh 时打印 compare 链接，浏览器里点 Create pull request；之后的盯 CI 与写 review 都在网页完成。
-- GitHub 的原生 approval 只能由别人给，AI review 是评论、不会变成 approval：要硬拦就由 owner 在分支保护里开 Require a pull request before merging；要把 AI review 也变成硬门禁，需要给审查账号单独一个 GitHub 身份，或加一个「review 是否存在」的 required check（还没做）。
-- 检查逻辑都放 `ci/`，`.github/workflows/` 只留入口；沿用的旧 workflow 之后逐个替换，新流程不要再直接往 `.github/workflows/` 里加。
-- `.github/workflows/ci.yml`：PR 到 `dev` / `main`，以及这两个分支的 push 都会跑。出包不在这里。现在的 job：`test-unit`（typecheck+单测）、`typecheck-sync-server`、`build-web`（含产物密钥扫描）、`version-policy`、`ui-gates`（手写控件/800 行）、`secret-guard`（源码密钥泄漏）。
+- **合并前必须 review，至少一次 AI review**，而且报告要发在 GitHub 上：有 gh 用 `gh pr review <编号> --comment --body-file review.md`；没有 gh 就在 **Files changed → Review changes → Comment** 里写。只在聊天里说「看过了」不算，PR 的 Reviews 里能查到才算。有未处理的 CHANGES_REQUESTED 不许合。最终 approve 与合并只能由人完成（见上面的「人与 agent 的分工」）。
+- **`gh` 只是便利工具，不是硬依赖。** `npm run pr -- "标题"` 不用 gh 也能走完：本地门禁 → 核对实测证据 → push（SSH 用自己的 key）→ 打印 compare 链接和 `preview/pr-body.md`，浏览器里点 Create pull request；之后的盯 CI 与写 review 都在网页完成。gh 只用于提 issue、盯 checks、发 review 评论和编辑 PR 内容。
+- GitHub 的原生 approval 只能由人给，AI review 是评论、不会变成 approval；合并的硬拦截就是分支保护的 Require approvals（配置见 `docs/branch-protection.md`）。要把「AI review 是否存在」也变成硬门禁，需要加一个「review 是否存在」的 required check（还没做）。
+- 检查逻辑都放 `ci/`，`.github/workflows/` 只留入口；新流程不要再直接往 `.github/workflows/` 里加逻辑。
+- `.github/workflows/ci.yml`：PR 到 `dev` / `main`，以及这两个分支的 push 都会跑。现在的 job：`test-unit`（typecheck+单测）、`typecheck-sync-server`、`build-web`（含产物密钥扫描）、`build-android`（`assembleDebug` 出 debug APK 并上传 artifact，CI 只验证能出包，功能实测在提 PR 前完成）、`version-policy`、`ui-gates`（手写控件/800 行）、`secret-guard`（源码密钥泄漏）。另有两条 PR 正文门禁：`issue-link.yml`（fix 关联 issue，job 名 `Pull request links an issue`）、`android-test.yml`（改动运行时代码时核对正文「安卓实测」段，job 名 `Android field-test evidence`）。
+- **桌面端没有 CI 构建与发版**：`electron-release`、`canary-pre-release`、`nightly-pre-release`、`release-candidate`、`linux-arm64-package-check` 五个 workflow 已删除；桌面端本地开发脚本（`dev:electron`、`build:electron` 等）保留。安卓发版走 `android-release.yml` 不变；服务器端的 docker/sync-server workflow 保留。
 - 密钥泄漏门禁：`node ci/checkSecrets.ts` 扫源码、`node ci/checkSecrets.ts --dist dist` 扫构建产物；`VITE_` 变量名带 KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL/AUTH 一律失败（会被内联进前端包）。误报写进 `ci/secretsAllowlist.json` 并写理由。规则细节见 `docs/contracts/secrets-guard.md` 与 `docs/contracts/secrets.md`。
 - 版本约束实现在 `ci/checkVersionPolicy.ts`，单独跑 `npm run check:versions`：平台依赖钉死且根目录与 `deploy/docker/<平台>-api/package.json` 同版本；`.nvmrc`、`engines.node` 与各 workflow 的 Node 版本一致；版本号满足 `android/app/build.gradle` 的 versionCode 推导；锁文件版本与 `package.json` 同步。
 - `.github/workflows/android-release.yml`：推 `release/*` 分支、`v*` 标签或手动 `workflow_dispatch` 出签名 APK/AAB；标签与分支名都必须与 `package.json` 的版本一致。签名要 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 四个 secrets，缺了只出未签名包。配了 secrets 时 CI 会当场校验 keystore 的口令/alias，并对产物 APK 验签、比对证书指纹；换 keystore 必须同时更新那 4 个 secrets 和 workflow 里的 `EXPECTED_CERT_SHA256`（当前证书 `BC:10:0C:6E:…:50:DA`，`keytool -list -v` 可查）。
@@ -132,6 +147,7 @@
 - `kugou-provider-alignment`：开发时按 `docs/ku-go-api-docs.md`、`.env.local` 中的真实酷狗服务和 `.dev-credentials/kugou.json` 对齐酷狗 provider 的请求与响应，不猜接口结构。
 - `prepare-folia-release`：稳定版本发布流程：汇总上个稳定版本以来用的人能感到的变化，更新新功能介绍、桌面与 Docker 版本号，并生成可手动粘贴的 Markdown release note。
 - `run-desktop`：启动并驱动 Electron 桌面版（隔离的 profile，后台驱动加单条命令的客户端：截图、点击、填表、在页面和主进程里求值、读日志），在真的桌面构建里验证主进程、preload IPC 和桌面专属设置的改动。
+- `run-android`：改动运行时代码后在安卓模拟器/真机上实测（`scripts/androidSmoke.mjs` 构建 debug APK、装机、启动、截图、抓 logcat，证据写进 `preview/android-evidence.json`），提 PR 前的硬前置。
 
 四份开发者指南：
 

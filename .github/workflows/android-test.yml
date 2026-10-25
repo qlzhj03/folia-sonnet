@@ -1,0 +1,45 @@
+name: Android test evidence
+
+# 改动运行时代码的 PR，正文「## 安卓实测」段必须给出模拟器/真机实测证据；纯文档/CI 改动自动豁免。
+# 判定逻辑在 ci/checkAndroidTest.ts，这个文件只做触发；实测怎么做见 skills/run-android/SKILL.md，规则见 AGENTS.md。
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+    # 只要求发向 dev / main 的 PR，别处的 PR 不跑。
+    branches:
+      - dev
+      - main
+
+permissions:
+  contents: read
+  # 读 PR 正文与改动文件列表走 pull-requests 只读。
+  pull-requests: read
+
+jobs:
+  android-test:
+    name: Android field-test evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # 不需要 npm ci：脚本只用 Node 内置模块。正文与文件列表从 gh pr view 取，交给脚本判定。
+      - name: Check pull request body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body,files > pr-context.json
+          node ci/checkAndroidTest.ts --context pr-context.json

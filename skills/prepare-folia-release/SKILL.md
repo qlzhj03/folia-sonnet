@@ -61,7 +61,7 @@ For desktop/Realeco, write the same stable `A.B.C` value to:
 
 For Docker, update `deploy/docker/VERSION` to a stable version greater than its current value. If the user did not specify a Docker version, propose the next patch version separately and confirm it before writing.
 
-The eventual release commit's complete message must be exactly `release: vA.B.C`; extra body text fails `.github/workflows/electron-release.yml`. Report this requirement, but do not create the commit without explicit authorization.
+The eventual release commit's complete message must be exactly `release: vA.B.C`; extra body text used to fail `.github/workflows/electron-release.yml`（该 workflow 已随桌面端 CI/CD 下线删除，但提交信息格式保留约定）. Report this requirement, but do not create the commit without explicit authorization.
 
 ## 5. Validate the prepared release
 

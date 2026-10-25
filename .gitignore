@@ -53,6 +53,7 @@ commit.md
 .codebuff-ai/reasson/conf.jsonc
 scripts/*
 !scripts/generate-android-assets.mjs
+!scripts/androidSmoke.mjs
 docs/TODO.md
 design/
 plan/
@@ -149,3 +150,6 @@ android/app/src/main/assets/capacitor.plugins.json
 # AI 工具的本地规则与状态：规则只有 AGENTS.md 一份，工具各自的配置不再进仓库。
 .gemini/
 .claude/settings.local.json
+
+# ZCode 会话的本地状态目录，不进仓库。
+.zcode/

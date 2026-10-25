@@ -139,6 +139,66 @@ jobs:
       - name: Scan web bundle for secrets
         run: node ci/checkSecrets.ts --dist dist
 
+  build-android:
+    name: Build android apk
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-ubuntu-latest-node24-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      # Capacitor 8 的库按 Java 21 编译（android/app/capacitor.build.gradle 的 VERSION_21），与 android-release.yml 一致。
+      - name: Install JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # 首次冷启动会下载 AGP 与依赖，之后按 android 构建脚本的 hash 命中。
+      - name: Restore gradle caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-ubuntu-latest-${{ hashFiles('android/build.gradle', 'android/variables.gradle', 'android/app/build.gradle', 'android/capacitor.settings.gradle') }}
+          restore-keys: gradle-ubuntu-latest-
+
+      # 顺序不能反：先 vite build 出这一版前端，cap sync 才会把它拷进 android/app/src/main/assets/public。
+      - name: Sync web bundle into android project
+        run: npm run cap:sync:android
+
+      # debug 包用默认 debug 签名，不需要任何 secrets；CI 只验证 APK 能编出来，功能实测在提 PR 前完成（skills/run-android）。
+      - name: Build debug APK
+        working-directory: ./android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: folia-debug-apk-${{ github.event.pull_request.number || github.ref_name }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+          if-no-files-found: error
+
   version-policy:
     name: Version policy
     if: github.event_name == 'push' || github.event.pull_request.draft == false
